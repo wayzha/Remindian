@@ -152,6 +152,7 @@ final class TimeAndAlarmTests: XCTestCase {
 
     func test_configDefaults() {
         let cfg = SyncConfiguration()
+        XCTAssertFalse(cfg.syncCompletedTasks, "Completed tasks should not sync by default.")
         XCTAssertFalse(cfg.addReminderAlarm, "Alarms are opt-in — off by default.")
         XCTAssertEqual(cfg.reminderAlarmHour, 9)
     }

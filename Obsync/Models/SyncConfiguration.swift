@@ -436,7 +436,7 @@ class SyncConfiguration: ObservableObject, Codable {
         excludedFolders: [String] = [".obsidian", ".git", ".trash"],
         includedFolders: [String] = [],
         includedNoteTags: [String] = [],
-        syncCompletedTasks: Bool = true,
+        syncCompletedTasks: Bool = false,
         deleteCompletedAfterDays: Int? = nil,
         conflictResolution: ConflictResolution = .obsidianWins,
         includeDueTime: Bool = false,
