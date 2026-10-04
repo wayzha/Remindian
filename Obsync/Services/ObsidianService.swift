@@ -1184,7 +1184,7 @@ class ObsidianService {
     func parseRecurrenceRule(from line: String) -> (rule: String, whenDone: Bool)? {
         // Match 🔁 (with optional FE0F) followed by the rule text (up to the next emoji or end of line)
         guard let regex = try? NSRegularExpression(
-            pattern: "\u{1F501}\u{FE0F}?\\s+(.+?)(?:\\s*[\u{1F4C5}\u{1F6EB}\u{23F3}\u{2705}\u{2B06}\u{FE0F}\u{1F53D}\u{23EB}⏫🔼🔽#]|$)",
+            pattern: "\u{1F501}\u{FE0F}?\\s+(.+?)(?:\\s*[\u{1F4C5}\u{1F6EB}\u{23F3}\u{2705}\u{2B06}\u{FE0F}\u{1F53D}\u{23EB}\u{2795}\u{23F0}\u{1F522}⏫🔼🔽#]|$)",
             options: []
         ) else { return nil }
 

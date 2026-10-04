@@ -542,6 +542,24 @@ class SyncEngine {
                     // can be true due to metadata changes unrelated to completion.
                     let completionDiffers = rTask.isCompleted != oTask.isCompleted
 
+                    // Implicit completion for recurring reminders: Apple auto-resets
+                    // EKRecurrenceRule reminders after completion (isCompleted→false,
+                    // dueDate→next occurrence). Detect by checking if the Reminders
+                    // due date advanced past the Obsidian due date while both sides
+                    // appear open.
+                    let implicitRecurringCompletion: Bool = {
+                        guard !completionDiffers,
+                              !oTask.isCompleted, !rTask.isCompleted,
+                              oTask.recurrenceRule != nil,
+                              rChanged, !oChanged,
+                              let oDue = oTask.dueDate, let rDue = rTask.dueDate else { return false }
+                        return Calendar.current.compare(rDue, to: oDue, toGranularity: .day) == .orderedDescending
+                    }()
+
+                    if implicitRecurringCompletion {
+                        debugLog("[SyncEngine] Implicit recurring completion detected for \"\(oTask.title)\": obsidian due=\(oTask.dueDate?.description ?? "nil"), reminders due=\(rTask.dueDate?.description ?? "nil")")
+                    }
+
                     // Pre-check file modification for writeback safety
                     // (computed once before any writes to avoid false positives from our own edits)
                     let fileNotModifiedBeforeSync: Bool = {
@@ -588,7 +606,7 @@ class SyncEngine {
                         debugLog("[SyncEngine] Routing \"\(oTask.title)\" to \"\(resolvedList)\" (was \"\(rTask.targetList ?? "no list")\")")
                     }
 
-                    if oChanged || completionDiffers || rChanged || needsURLBackfill || needsListMove {
+                    if oChanged || completionDiffers || implicitRecurringCompletion || rChanged || needsURLBackfill || needsListMove {
                         do {
                             var taskForReminders = oTask
 
@@ -673,6 +691,58 @@ class SyncEngine {
                                 }
                             }
 
+                            // Handle implicit recurring completion (Apple auto-reset).
+                            // The reminder is open with an advanced due date — treat
+                            // the OLD due date as the completed occurrence.
+                            if implicitRecurringCompletion, config.enableCompletionWriteback {
+                                debugLog("[SyncEngine] Implicit recurring completion for \"\(oTask.title)\": writing back completion for \(oTask.dueDate?.description ?? "nil")")
+                                if !fileNotModifiedBeforeSync {
+                                    obsidianWritebackSkippedDueToFileMod = true
+                                    result.errors.append(ObsidianError.fileModifiedDuringSync)
+                                } else if !config.dryRunMode {
+                                    var adjustedTask = oTask
+                                    if let src = oTask.obsidianSource {
+                                        let insertions = fileInsertions[src.filePath] ?? []
+                                        let offset = insertions.filter { $0 <= src.lineNumber }.count
+                                        adjustedTask.obsidianSource = SyncTask.ObsidianSource(
+                                            filePath: src.filePath,
+                                            lineNumber: src.lineNumber + offset,
+                                            originalLine: src.originalLine
+                                        )
+                                    }
+                                    let completionDate = oTask.dueDate ?? Date()
+                                    do {
+                                        let inserted = try source.markTaskComplete(
+                                            task: adjustedTask,
+                                            completionDate: completionDate,
+                                            config: config
+                                        )
+                                        if inserted > 0, let src = oTask.obsidianSource {
+                                            fileInsertions[src.filePath, default: []].append(src.lineNumber)
+                                        }
+                                        if let fp = oTask.obsidianSource?.filePath { filesWrittenByEngine.insert(fp) }
+                                        completionWritebackIds.insert(mapping.obsidianId)
+                                        result.completionsWrittenBack += 1
+                                        result.details.append(SyncLogDetail(
+                                            action: .completionWriteback,
+                                            taskTitle: oTask.title,
+                                            filePath: oTask.obsidianSource?.filePath,
+                                            errorMessage: "Implicit recurring completion (Apple auto-reset)"
+                                        ))
+                                    } catch {
+                                        result.errors.append(error)
+                                    }
+                                } else {
+                                    result.completionsWrittenBack += 1
+                                    result.details.append(SyncLogDetail(
+                                        action: .completionWriteback,
+                                        taskTitle: "[DRY RUN] " + oTask.title,
+                                        filePath: oTask.obsidianSource?.filePath,
+                                        errorMessage: "Implicit recurring completion"
+                                    ))
+                                }
+                            }
+
                             // Handle: completed in Obsidian, incomplete in Reminders.
                             // Obsidian is the source of truth — update Reminders to match.
                             // DO NOT revert Obsidian's completion state (#16).
@@ -688,7 +758,7 @@ class SyncEngine {
                             // All changes are applied atomically in a single file write.
                             // Skip if completion writeback already modified this task's
                             // vault line — originalLine is stale and the task is done.
-                            if rChanged && !oChanged && !completionWritebackIds.contains(mapping.obsidianId) {
+                            if rChanged && !oChanged && !completionWritebackIds.contains(mapping.obsidianId) && !implicitRecurringCompletion {
                                 if !fileNotModifiedBeforeSync {
                                     // File mtime bumped between sync start and now.
                                     // Without this branch the writeback would silently
@@ -1022,6 +1092,67 @@ class SyncEngine {
                             filePath: candidateTask.obsidianSource?.filePath,
                             errorMessage: "Re-linked after ID change"
                         ))
+
+                        // Completion writeback on re-link: when the re-linked
+                        // reminder is completed but the Obsidian task is open,
+                        // write back NOW. Without this, Step 6 Guard 3 overwrites
+                        // this mapping with the next occurrence (R2), and the
+                        // completed occurrence (R1) is permanently skipped by
+                        // Guard 1 on every subsequent sync.
+                        if rTask.isCompleted, !candidateTask.isCompleted, config.enableCompletionWriteback {
+                            let fileOk: Bool = {
+                                if let fp = candidateTask.obsidianSource?.filePath, filesWrittenByEngine.contains(fp) { return true }
+                                return !source.hasFileChanged(task: candidateTask, since: syncStartTimestamp, config: config)
+                            }()
+                            if fileOk, !config.dryRunMode {
+                                do {
+                                    var adjustedTask = candidateTask
+                                    if let src = candidateTask.obsidianSource {
+                                        let insertions = fileInsertions[src.filePath] ?? []
+                                        let offset = insertions.filter { $0 <= src.lineNumber }.count
+                                        adjustedTask.obsidianSource = SyncTask.ObsidianSource(
+                                            filePath: src.filePath,
+                                            lineNumber: src.lineNumber + offset,
+                                            originalLine: src.originalLine
+                                        )
+                                    }
+                                    debugLog("[SyncEngine] Writing completion back on re-link: \"\(candidateTask.title)\"")
+                                    let inserted = try source.markTaskComplete(
+                                        task: adjustedTask,
+                                        completionDate: rTask.completedDate ?? Date(),
+                                        config: config
+                                    )
+                                    if inserted > 0, let src = candidateTask.obsidianSource {
+                                        fileInsertions[src.filePath, default: []].append(src.lineNumber)
+                                    }
+                                    if let fp = candidateTask.obsidianSource?.filePath { filesWrittenByEngine.insert(fp) }
+                                    completionWritebackIds.insert(candidateId)
+                                    result.completionsWrittenBack += 1
+                                    result.details.append(SyncLogDetail(
+                                        action: .completionWriteback,
+                                        taskTitle: candidateTask.title,
+                                        filePath: candidateTask.obsidianSource?.filePath,
+                                        errorMessage: nil
+                                    ))
+                                } catch {
+                                    result.errors.append(error)
+                                    result.details.append(SyncLogDetail(
+                                        action: .error,
+                                        taskTitle: candidateTask.title,
+                                        filePath: candidateTask.obsidianSource?.filePath,
+                                        errorMessage: "Completion writeback on re-link failed: \(error.localizedDescription)"
+                                    ))
+                                }
+                            } else if config.dryRunMode {
+                                result.completionsWrittenBack += 1
+                                result.details.append(SyncLogDetail(
+                                    action: .completionWriteback,
+                                    taskTitle: "[DRY RUN] " + candidateTask.title,
+                                    filePath: candidateTask.obsidianSource?.filePath,
+                                    errorMessage: nil
+                                ))
+                            }
+                        }
                     }
 
                     if !relinked {
@@ -1216,6 +1347,53 @@ class SyncEngine {
 
                     let matched = candidates.remove(at: bestIndex)
                     unmatchedRemindersByTitle[task.title] = candidates
+
+                    // Completion writeback on reconnect: when an unmapped
+                    // Obsidian task reconnects to a COMPLETED reminder (e.g.
+                    // after sync state loss or ID migration), write completion
+                    // back to Obsidian instead of pushing the open state to
+                    // the reminder (which would destroy the completion).
+                    if matched.task.isCompleted, !task.isCompleted, config.enableCompletionWriteback,
+                       !SyncEngine.isCompletedTaskTooOld(matched.task, cutoff: SyncEngine.completedTaskCutoffDate(for: config)) {
+                        debugLog("[SyncEngine] Reconnecting to completed reminder \"\(task.title)\": writing completion back instead of overwriting")
+                        if !config.dryRunMode {
+                            do {
+                                let inserted = try source.markTaskComplete(
+                                    task: task,
+                                    completionDate: matched.task.completedDate ?? Date(),
+                                    config: config
+                                )
+                                if inserted > 0, let src = task.obsidianSource {
+                                    fileInsertions[src.filePath, default: []].append(src.lineNumber)
+                                }
+                                if let fp = task.obsidianSource?.filePath { filesWrittenByEngine.insert(fp) }
+                                completionWritebackIds.insert(obsidianId)
+                            } catch {
+                                result.errors.append(error)
+                                result.details.append(SyncLogDetail(
+                                    action: .error,
+                                    taskTitle: task.title,
+                                    filePath: task.obsidianSource?.filePath,
+                                    errorMessage: "Completion writeback on reconnect failed: \(error.localizedDescription)"
+                                ))
+                            }
+                            syncState.addOrUpdateMapping(
+                                obsidianId: obsidianId,
+                                remindersId: matched.id,
+                                obsidianHash: SyncState.generateTaskHash(task),
+                                remindersHash: SyncState.generateTaskHash(matched.task)
+                            )
+                        }
+                        remindersMap.removeValue(forKey: matched.id)
+                        result.completionsWrittenBack += 1
+                        result.details.append(SyncLogDetail(
+                            action: .completionWriteback,
+                            taskTitle: task.title,
+                            filePath: task.obsidianSource?.filePath,
+                            errorMessage: nil
+                        ))
+                        continue
+                    }
 
                     debugLog("[SyncEngine] Reconnecting new task \"\(task.title)\" to existing reminder \(matched.id) (dedup)")
 
