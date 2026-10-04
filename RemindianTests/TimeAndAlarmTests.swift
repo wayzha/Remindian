@@ -82,6 +82,72 @@ final class TimeAndAlarmTests: XCTestCase {
         XCTAssertEqual(cal.dateComponents([.hour], from: fire).hour, 23, "Out-of-range hour clamps to 23.")
     }
 
+    // MARK: - Standalone ⏰ alarm-time parsing
+
+    func test_alarmEmoji_mergedWithDueDate() {
+        let task = SyncTask.fromObsidianLine(
+            "- [ ] 信用卡还款 #每月任务 #remind-at-due ⏰ 10:00 🔁 every month on the 28th ➕ 2026-10-03 📅 2026-10-28",
+            filePath: "/n.md", lineNumber: 1
+        )
+        let c = comps(task?.dueDate)
+        XCTAssertEqual(c?.year, 2026)
+        XCTAssertEqual(c?.month, 10)
+        XCTAssertEqual(c?.day, 28)
+        XCTAssertEqual(c?.hour, 10)
+        XCTAssertEqual(c?.minute, 0)
+        XCTAssertEqual(task?.title, "信用卡还款")
+    }
+
+    func test_alarmEmoji_strippedFromTitle() {
+        let task = SyncTask.fromObsidianLine(
+            "- [ ] Meeting ⏰ 14:30 📅 2026-10-28",
+            filePath: "/n.md", lineNumber: 1
+        )
+        XCTAssertEqual(task?.title, "Meeting")
+        XCTAssertEqual(comps(task?.dueDate)?.hour, 14)
+        XCTAssertEqual(comps(task?.dueDate)?.minute, 30)
+    }
+
+    func test_alarmEmoji_noDueDate_noMerge() {
+        let task = SyncTask.fromObsidianLine(
+            "- [ ] Task ⏰ 10:00",
+            filePath: "/n.md", lineNumber: 1
+        )
+        XCTAssertNil(task?.dueDate)
+        XCTAssertEqual(task?.title, "Task")
+    }
+
+    func test_alarmEmoji_inlineDateTimeWins() {
+        let task = SyncTask.fromObsidianLine(
+            "- [ ] Standup 📅 2026-03-15 14:30",
+            filePath: "/n.md", lineNumber: 1
+        )
+        XCTAssertEqual(comps(task?.dueDate)?.hour, 14)
+        XCTAssertEqual(comps(task?.dueDate)?.minute, 30,
+            "Inline time on 📅 should still work without ⏰.")
+    }
+
+    func test_alarmEmoji_afterDueDate() {
+        let task = SyncTask.fromObsidianLine(
+            "- [ ] Review 📅 2026-05-01 ⏰ 09:15",
+            filePath: "/n.md", lineNumber: 1
+        )
+        let c = comps(task?.dueDate)
+        XCTAssertEqual(c?.day, 1)
+        XCTAssertEqual(c?.hour, 9)
+        XCTAssertEqual(c?.minute, 15)
+        XCTAssertEqual(task?.title, "Review")
+    }
+
+    func test_alarmEmoji_singleDigitHour() {
+        let task = SyncTask.fromObsidianLine(
+            "- [ ] Early ⏰ 8:00 📅 2026-06-10",
+            filePath: "/n.md", lineNumber: 1
+        )
+        XCTAssertEqual(comps(task?.dueDate)?.hour, 8)
+        XCTAssertEqual(comps(task?.dueDate)?.minute, 0)
+    }
+
     // MARK: - Config back-compat
 
     func test_configDefaults() {

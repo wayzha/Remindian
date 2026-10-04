@@ -169,8 +169,8 @@ extension SyncTask {
         // Recurrence emoji — capture the rule text (emoji + trailing run up to
         // the next metadata emoji or tag). Order 🔁 then 🔂.
         static let recurrenceEmojiCapture: [NSRegularExpression] = [
-            make("🔁\u{FE0F}?\\s*[^📅🛫⏳✅⏫🔼🔽#]*"),
-            make("🔂\u{FE0F}?\\s*[^📅🛫⏳✅⏫🔼🔽#]*"),
+            make("🔁\u{FE0F}?\\s*[^📅🛫⏳✅⏫🔼🔽⏰#]*"),
+            make("🔂\u{FE0F}?\\s*[^📅🛫⏳✅⏫🔼🔽⏰#]*"),
         ]
 
         // Recurrence emoji — bare emoji only, used when stripping the rule from
@@ -205,6 +205,14 @@ extension SyncTask {
             "⏳": make("⏳\u{FE0F}?\\s*(\\d{4}-\\d{2}-\\d{2})(?:[ T](\\d{1,2}:\\d{2}))?"),
             "✅": make("✅\u{FE0F}?\\s*(\\d{4}-\\d{2}-\\d{2})"),
         ]
+
+        // Standalone alarm/reminder time — `⏰ HH:mm` or `⏰ yyyy-MM-dd HH:mm`.
+        // The Obsidian Tasks plugin uses ⏰ to specify a notification time that
+        // is separate from the due date. When only a time is present (the common
+        // case), it is merged into the 📅 due date so Apple Reminders fires at
+        // the right moment. An optional date prefix is consumed but only the
+        // time (group 1) is used for merging.
+        static let alarmTime = make("⏰\u{FE0F}?\\s*(?:\\d{4}-\\d{2}-\\d{2}[ T])?(\\d{1,2}:\\d{2})")
 
         // Protected ranges for tag extraction (#65).
         static let url = make("https?://[^\\s)\\]]+")
@@ -326,10 +334,21 @@ extension SyncTask {
         var content = checkbox.content
         
         // Parse dates with emojis
-        let dueDate = extractDate(from: &content, emoji: "📅")
+        var dueDate = extractDate(from: &content, emoji: "📅")
         let startDate = extractDate(from: &content, emoji: "🛫")
         let scheduledDate = extractDate(from: &content, emoji: "⏳")
         let completedDate = extractDate(from: &content, emoji: "✅")
+
+        // Parse standalone ⏰ alarm time and merge into due date so the
+        // reminder fires at the right time-of-day instead of midnight.
+        if let alarm = extractAlarmTime(from: &content), let due = dueDate {
+            var comps = Calendar.current.dateComponents([.year, .month, .day], from: due)
+            comps.hour = alarm.hour
+            comps.minute = alarm.minute
+            if let merged = Calendar.current.date(from: comps) {
+                dueDate = merged
+            }
+        }
         
         // Parse priority (handle optional FE0F variation selector)
         var priority: Priority = .none
@@ -681,6 +700,22 @@ extension SyncTask {
         return formatter.date(from: dateString)
     }
     
+    /// Extract a standalone `⏰ HH:mm` alarm time from `content`, removing the
+    /// matched token. Returns `(hour, minute)` or nil when absent / malformed.
+    private static func extractAlarmTime(from content: inout String) -> (hour: Int, minute: Int)? {
+        let regex = Rx.alarmTime
+        let range = NSRange(content.startIndex..., in: content)
+        guard let match = regex.firstMatch(in: content, options: [], range: range),
+              let timeRange = Range(match.range(at: 1), in: content) else { return nil }
+        let timeString = String(content[timeRange])
+        let parts = timeString.split(separator: ":").compactMap { Int($0) }
+        guard parts.count == 2, (0...23).contains(parts[0]), (0...59).contains(parts[1]) else { return nil }
+        if let fullRange = Range(match.range, in: content) {
+            content.removeSubrange(fullRange)
+        }
+        return (hour: parts[0], minute: parts[1])
+    }
+
     private func formatDate(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
