@@ -34,6 +34,11 @@ enum RecurrenceConverter {
         let normalized = normalize(ruleText)
         guard !normalized.isEmpty else { return nil }
 
+        // Handle "every [Month] on the [Nth]" → yearly with specific month+day
+        if let monthlyRule = parseYearlyByMonthName(normalized) {
+            return monthlyRule
+        }
+
         // Extract leading "every [N] <unit>" pattern. The rest of the line may
         // carry extra info (e.g. "on the 15th") that we handle below.
         let regex = try? NSRegularExpression(
@@ -95,26 +100,55 @@ enum RecurrenceConverter {
     /// Returns a canonical form prefixed with 🔁 so round-trips are stable.
     /// Returns `nil` for shapes we can't express in the plugin's grammar
     /// (e.g. set positions, complex byday rules).
-    static func format(rule: EKRecurrenceRule) -> String? {
+    static func format(rule: EKRecurrenceRule, dueDate: Date? = nil) -> String? {
         let interval = max(1, rule.interval)
+        let cal = Calendar.current
 
         switch rule.frequency {
         case .daily:
             return "🔁 " + (interval == 1 ? "every day" : "every \(interval) days")
 
         case .weekly:
-            // We don't yet serialize daysOfTheWeek — if set, fall back to generic
-            // "every N weeks" text. The plugin will still keep the rule on screen
-            // via our verbatim text preservation in Phase A.
-            return "🔁 " + (interval == 1 ? "every week" : "every \(interval) weeks")
+            let base = interval == 1 ? "every week" : "every \(interval) weeks"
+            if let days = rule.daysOfTheWeek, let first = days.first {
+                return "🔁 \(base) on \(Self.weekdayName(first.dayOfTheWeek))"
+            }
+            if let due = dueDate {
+                let wd = cal.component(.weekday, from: due)
+                if let ek = EKWeekday(rawValue: wd) {
+                    return "🔁 \(base) on \(Self.weekdayName(ek))"
+                }
+            }
+            return "🔁 " + base
 
         case .monthly:
-            if let days = rule.daysOfTheMonth, let first = days.first, interval == 1 {
-                return "🔁 every month on the \(ordinal(first.intValue))"
+            if let days = rule.daysOfTheMonth, let first = days.first {
+                let base = interval == 1 ? "every month" : "every \(interval) months"
+                return "🔁 \(base) on the \(ordinal(first.intValue))"
+            }
+            if let due = dueDate {
+                let day = cal.component(.day, from: due)
+                let base = interval == 1 ? "every month" : "every \(interval) months"
+                return "🔁 \(base) on the \(ordinal(day))"
             }
             return "🔁 " + (interval == 1 ? "every month" : "every \(interval) months")
 
         case .yearly:
+            let monthNum: Int?
+            let dayNum: Int?
+            if let months = rule.monthsOfTheYear, let first = months.first {
+                monthNum = first.intValue
+                dayNum = rule.daysOfTheMonth?.first?.intValue ?? 1
+            } else if let due = dueDate {
+                monthNum = cal.component(.month, from: due)
+                dayNum = cal.component(.day, from: due)
+            } else {
+                monthNum = nil; dayNum = nil
+            }
+            if let m = monthNum, let d = dayNum, (1...12).contains(m) {
+                let monthName = cal.monthSymbols[m - 1]
+                return "🔁 every \(monthName) on the \(ordinal(d))"
+            }
             return "🔁 " + (interval == 1 ? "every year" : "every \(interval) years")
 
         @unknown default:
@@ -182,6 +216,37 @@ enum RecurrenceConverter {
 
     /// Render an ordinal suffix: 1 → "1st", 2 → "2nd", 3 → "3rd", 4 → "4th"…
     /// 11/12/13 all get "th".
+    private static func parseYearlyByMonthName(_ text: String) -> EKRecurrenceRule? {
+        let months = ["january","february","march","april","may","june",
+                      "july","august","september","october","november","december"]
+        guard let regex = try? NSRegularExpression(
+            pattern: #"^every\s+(january|february|march|april|may|june|july|august|september|october|november|december)\b(.*)"#,
+            options: [.caseInsensitive]
+        ) else { return nil }
+        let range = NSRange(text.startIndex..., in: text)
+        guard let match = regex.firstMatch(in: text, options: [], range: range),
+              let monthRange = Range(match.range(at: 1), in: text) else { return nil }
+
+        let monthStr = String(text[monthRange]).lowercased()
+        guard let monthIndex = months.firstIndex(of: monthStr) else { return nil }
+        let monthNumber = monthIndex + 1
+
+        let tail = Range(match.range(at: 2), in: text).map { String(text[$0]) } ?? ""
+        let day = parseDayOfMonth(from: tail) ?? 1
+
+        return EKRecurrenceRule(
+            recurrenceWith: .yearly,
+            interval: 1,
+            daysOfTheWeek: nil,
+            daysOfTheMonth: [NSNumber(value: day)],
+            monthsOfTheYear: [NSNumber(value: monthNumber)],
+            weeksOfTheYear: nil,
+            daysOfTheYear: nil,
+            setPositions: nil,
+            end: nil
+        )
+    }
+
     private static func ordinal(_ n: Int) -> String {
         let mod100 = n % 100
         if (11...13).contains(mod100) { return "\(n)th" }
@@ -190,6 +255,19 @@ enum RecurrenceConverter {
         case 2: return "\(n)nd"
         case 3: return "\(n)rd"
         default: return "\(n)th"
+        }
+    }
+
+    private static func weekdayName(_ day: EKWeekday) -> String {
+        switch day {
+        case .sunday: return "Sunday"
+        case .monday: return "Monday"
+        case .tuesday: return "Tuesday"
+        case .wednesday: return "Wednesday"
+        case .thursday: return "Thursday"
+        case .friday: return "Friday"
+        case .saturday: return "Saturday"
+        @unknown default: return "Monday"
         }
     }
 }

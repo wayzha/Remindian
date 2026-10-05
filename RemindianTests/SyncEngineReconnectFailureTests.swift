@@ -124,7 +124,7 @@ private final class ReconnectMockSource: TaskSource {
 
     func scanTasks(config: SyncConfiguration) throws -> [SyncTask] { scanned }
     func generateTaskId(for task: SyncTask) -> String { "mock-\(task.title)" }
-    func markTaskComplete(task: SyncTask, completionDate: Date, config: SyncConfiguration) throws -> Int { 0 }
+    func markTaskComplete(task: SyncTask, completionDate: Date, config: SyncConfiguration, overrideNextDueDate: Date? = nil) throws -> Int { 0 }
     func markTaskIncomplete(task: SyncTask, config: SyncConfiguration) throws {}
     func updateTaskMetadata(task: SyncTask, changes: MetadataChanges, config: SyncConfiguration) throws {}
     func appendNewTask(_ task: SyncTask, config: SyncConfiguration) throws -> SyncTask.ObsidianSource {

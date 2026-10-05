@@ -602,6 +602,7 @@ class SyncEngine {
                         heading: oTask.obsidianSource?.sectionHeading
                     )
                     let needsListMove = resolvedList.caseInsensitiveCompare(rTask.targetList ?? "") != .orderedSame
+                    debugLog("[SyncEngine] LIST-ROUTING \"\(oTask.title)\": oTask.targetList=\(oTask.targetList ?? "nil"), oTask.tags=\(oTask.tags), resolvedList=\(resolvedList), rTask.targetList=\(rTask.targetList ?? "nil"), needsListMove=\(needsListMove)")
                     if needsListMove {
                         debugLog("[SyncEngine] Routing \"\(oTask.title)\" to \"\(resolvedList)\" (was \"\(rTask.targetList ?? "no list")\")")
                     }
@@ -715,7 +716,8 @@ class SyncEngine {
                                         let inserted = try source.markTaskComplete(
                                             task: adjustedTask,
                                             completionDate: completionDate,
-                                            config: config
+                                            config: config,
+                                            overrideNextDueDate: rTask.dueDate
                                         )
                                         if inserted > 0, let src = oTask.obsidianSource {
                                             fileInsertions[src.filePath, default: []].append(src.lineNumber)
@@ -1439,7 +1441,7 @@ class SyncEngine {
 
                 // Queue for batch creation
                 let listName = config.resolveTargetList(tag: task.targetList, filePath: task.obsidianSource?.filePath, tags: task.tags, heading: task.obsidianSource?.sectionHeading)
-                debugLog("[SyncEngine] Queuing: \"\(task.title)\" → list \"\(listName)\"")
+                debugLog("[SyncEngine] LIST-ROUTING-STEP5 \"\(task.title)\": targetList=\(task.targetList ?? "nil"), tags=\(task.tags), resolvedList=\(listName)")
                 newTasksToCreate.append((obsidianId: obsidianId, task: task, listName: listName))
             }
 
@@ -1559,12 +1561,11 @@ class SyncEngine {
                             }()
 
                             let obsidianId = source.generateTaskId(for: mappedTask)
-                            let hash = SyncState.generateTaskHash(mappedTask)
                             syncState.addOrUpdateMapping(
                                 obsidianId: obsidianId,
                                 remindersId: remindersId,
-                                obsidianHash: hash,
-                                remindersHash: hash
+                                obsidianHash: SyncState.generateTaskHash(mappedTask),
+                                remindersHash: SyncState.generateTaskHash(rTask)
                             )
                         }
 

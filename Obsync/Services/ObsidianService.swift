@@ -507,7 +507,8 @@ class ObsidianService {
         task: SyncTask,
         inboxRelativePath: String,
         vaultPath: String,
-        globalFilter: String = ""
+        globalFilter: String = "",
+        config: SyncConfiguration? = nil
     ) throws -> (filePath: String, lineNumber: Int, lineContent: String) {
         let relativePath = inboxRelativePath.hasPrefix("/") ? inboxRelativePath : "/" + inboxRelativePath
         let fileURL = URL(fileURLWithPath: vaultPath + relativePath)
@@ -536,15 +537,41 @@ class ObsidianService {
             parts.append(task.priority.obsidianEmoji)
         }
 
+        let cal = Calendar.current
+        let dueHasTime: Bool = {
+            guard let d = task.dueDate else { return false }
+            let c = cal.dateComponents([.hour, .minute], from: d)
+            return (c.hour ?? 0) != 0 || (c.minute ?? 0) != 0
+        }()
+        let startHasTime: Bool = {
+            guard let d = task.startDate else { return false }
+            let c = cal.dateComponents([.hour, .minute], from: d)
+            return (c.hour ?? 0) != 0 || (c.minute ?? 0) != 0
+        }()
+
+        if (config?.writebackRemindAtTags ?? true) && dueHasTime { parts.append("#remind-at-due") }
+        if (config?.writebackRemindAtTags ?? true) && startHasTime { parts.append("#remind-at-start") }
+
+        if (config?.writebackAlarmTime ?? true) && dueHasTime, let d = task.dueDate {
+            let c = cal.dateComponents([.hour, .minute], from: d)
+            parts.append("⏰ \(String(format: "%02d:%02d", c.hour ?? 0, c.minute ?? 0))")
+        }
+
         // Recurrence (🔁) — written before the dates, matching the Obsidian Tasks
         // emoji order. Round-trips back on the next scan and becomes a repeating
         // Apple Reminder via RecurrenceConverter. (Quick-add recurrence)
         if let rule = task.recurrenceRule, !rule.isEmpty {
-            parts.append("🔁 \(rule)")
+            if rule.contains("🔁") || rule.contains("🔂") {
+                parts.append(rule)
+            } else {
+                parts.append("🔁 \(rule)")
+            }
         }
 
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
+
+        parts.append("➕ \(formatter.string(from: Date()))")
 
         if let startDate = task.startDate {
             parts.append("🛫 \(formatter.string(from: startDate))")
@@ -556,14 +583,6 @@ class ObsidianService {
 
         if task.isCompleted, let completedDate = task.completedDate {
             parts.append("✅ \(formatter.string(from: completedDate))")
-        }
-
-        // Add list/tag if available
-        if let targetList = task.targetList, !targetList.isEmpty {
-            let tag = "#\(targetList)"
-            if !parts.contains(tag) {
-                parts.append(tag)
-            }
         }
 
         let taskLine = parts.joined(separator: " ")
@@ -705,7 +724,8 @@ class ObsidianService {
         lineNumber: Int,
         originalLine: String,
         completionDate: Date,
-        vaultPath: String
+        vaultPath: String,
+        overrideNextDueDate: Date? = nil
     ) throws -> Int {
         let fileURL = URL(fileURLWithPath: vaultPath + filePath)
 
@@ -805,62 +825,71 @@ class ObsidianService {
             let startDate = datePattern("🛫", currentLine)
             let referenceDate = dueDate ?? scheduledDate ?? startDate
 
-            if let refDate = referenceDate,
-               let result = computeNextDate(
-                   rule: recurrence.rule,
-                   whenDone: recurrence.whenDone,
-                   referenceDate: refDate,
-                   completionDate: completionDate
-               ) {
-                let nextRefDate = result.referenceDate
-                let calendar = Calendar.current
+            if let refDate = referenceDate {
+                let nextDue: Date?
+                let nextStart: Date?
+                let nextScheduled: Date?
 
-                var nextDue: Date? = nil
-                var nextStart: Date? = nil
-                var nextScheduled: Date? = nil
+                if let override = overrideNextDueDate {
+                    nextDue = override
+                    nextStart = nil
+                    nextScheduled = nil
+                } else if let result = computeNextDate(
+                    rule: recurrence.rule,
+                    whenDone: recurrence.whenDone,
+                    referenceDate: refDate,
+                    completionDate: completionDate
+                ) {
+                    let nextRefDate = result.referenceDate
+                    let calendar = Calendar.current
 
-                if let d = dueDate {
-                    if d == refDate { nextDue = nextRefDate }
-                    else {
-                        let offset = calendar.dateComponents([.day], from: calendar.startOfDay(for: refDate), to: calendar.startOfDay(for: d)).day ?? 0
-                        nextDue = calendar.date(byAdding: .day, value: offset, to: nextRefDate)
-                    }
+                    if let d = dueDate {
+                        if d == refDate { nextDue = nextRefDate }
+                        else {
+                            let offset = calendar.dateComponents([.day], from: calendar.startOfDay(for: refDate), to: calendar.startOfDay(for: d)).day ?? 0
+                            nextDue = calendar.date(byAdding: .day, value: offset, to: nextRefDate)
+                        }
+                    } else { nextDue = nil }
+                    if let ruleStart = result.startDate {
+                        nextStart = ruleStart
+                    } else if let d = startDate {
+                        if d == refDate { nextStart = nextRefDate }
+                        else {
+                            let offset = calendar.dateComponents([.day], from: calendar.startOfDay(for: refDate), to: calendar.startOfDay(for: d)).day ?? 0
+                            nextStart = calendar.date(byAdding: .day, value: offset, to: nextRefDate)
+                        }
+                    } else { nextStart = nil }
+                    if let d = scheduledDate {
+                        if d == refDate { nextScheduled = nextRefDate }
+                        else {
+                            let offset = calendar.dateComponents([.day], from: calendar.startOfDay(for: refDate), to: calendar.startOfDay(for: d)).day ?? 0
+                            nextScheduled = calendar.date(byAdding: .day, value: offset, to: nextRefDate)
+                        }
+                    } else { nextScheduled = nil }
+                } else {
+                    nextDue = nil; nextStart = nil; nextScheduled = nil
                 }
-                if let ruleStart = result.startDate {
-                    nextStart = ruleStart
-                } else if let d = startDate {
-                    if d == refDate { nextStart = nextRefDate }
-                    else {
-                        let offset = calendar.dateComponents([.day], from: calendar.startOfDay(for: refDate), to: calendar.startOfDay(for: d)).day ?? 0
-                        nextStart = calendar.date(byAdding: .day, value: offset, to: nextRefDate)
-                    }
+
+                if nextDue != nil || nextStart != nil || nextScheduled != nil {
+                    let recurrenceLine = buildRecurrenceLine(
+                        originalLine: currentLine,
+                        nextDueDate: nextDue,
+                        nextStartDate: nextStart,
+                        nextScheduledDate: nextScheduled
+                    )
+
+                    lines.insert(recurrenceLine, at: resolvedIndex)
+                    linesInserted = 1
+
+                    debugLog("[ObsidianService] Inserted recurrence line: \(recurrenceLine)")
+                    auditLog.logFileModification(
+                        action: "insertRecurrence",
+                        filePath: filePath,
+                        lineNumber: resolvedIndex + 1,
+                        beforeLine: "",
+                        afterLine: recurrenceLine
+                    )
                 }
-                if let d = scheduledDate {
-                    if d == refDate { nextScheduled = nextRefDate }
-                    else {
-                        let offset = calendar.dateComponents([.day], from: calendar.startOfDay(for: refDate), to: calendar.startOfDay(for: d)).day ?? 0
-                        nextScheduled = calendar.date(byAdding: .day, value: offset, to: nextRefDate)
-                    }
-                }
-
-                let recurrenceLine = buildRecurrenceLine(
-                    originalLine: currentLine,
-                    nextDueDate: nextDue,
-                    nextStartDate: nextStart,
-                    nextScheduledDate: nextScheduled
-                )
-
-                lines.insert(recurrenceLine, at: resolvedIndex)
-                linesInserted = 1
-
-                debugLog("[ObsidianService] Inserted recurrence line: \(recurrenceLine)")
-                auditLog.logFileModification(
-                    action: "insertRecurrence",
-                    filePath: filePath,
-                    lineNumber: resolvedIndex + 1,
-                    beforeLine: "",
-                    afterLine: recurrenceLine
-                )
             }
         }
 

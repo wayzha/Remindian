@@ -19,7 +19,7 @@ protocol TaskSource {
     /// Surgically mark a task as completed in the source.
     /// Returns the number of lines/items inserted (for offset tracking).
     @discardableResult
-    func markTaskComplete(task: SyncTask, completionDate: Date, config: SyncConfiguration) throws -> Int
+    func markTaskComplete(task: SyncTask, completionDate: Date, config: SyncConfiguration, overrideNextDueDate: Date?) throws -> Int
 
     /// Surgically mark a task as incomplete in the source.
     func markTaskIncomplete(task: SyncTask, config: SyncConfiguration) throws
@@ -44,5 +44,12 @@ struct MetadataChanges {
 
     var hasChanges: Bool {
         return newDueDate != nil || newStartDate != nil || newPriority != nil || newTags != nil
+    }
+}
+
+extension TaskSource {
+    @discardableResult
+    func markTaskComplete(task: SyncTask, completionDate: Date, config: SyncConfiguration) throws -> Int {
+        try markTaskComplete(task: task, completionDate: completionDate, config: config, overrideNextDueDate: nil)
     }
 }

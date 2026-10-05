@@ -222,7 +222,7 @@ private final class PhantomMockSource: TaskSource {
     func scanTasks(config: SyncConfiguration) throws -> [SyncTask] { scannedTasks }
     func generateTaskId(for task: SyncTask) -> String { "mock-\(task.title)" }
 
-    func markTaskComplete(task: SyncTask, completionDate: Date, config: SyncConfiguration) throws -> Int {
+    func markTaskComplete(task: SyncTask, completionDate: Date, config: SyncConfiguration, overrideNextDueDate: Date? = nil) throws -> Int {
         XCTFail("markTaskComplete must not be called: nothing changed"); return 0
     }
     func markTaskIncomplete(task: SyncTask, config: SyncConfiguration) throws {

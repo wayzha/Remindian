@@ -190,6 +190,9 @@ final class GlobalFilterTests: XCTestCase {
             inboxRelativePath: "Inbox.md",
             vaultPath: vault.path
         )
-        XCTAssertEqual(result.lineContent.trimmingCharacters(in: .whitespaces), "- [ ] Buy milk")
+        let today = {
+            let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; return f.string(from: Date())
+        }()
+        XCTAssertEqual(result.lineContent.trimmingCharacters(in: .whitespaces), "- [ ] Buy milk ➕ \(today)")
     }
 }

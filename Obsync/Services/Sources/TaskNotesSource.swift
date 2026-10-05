@@ -384,7 +384,7 @@ class TaskNotesSource: TaskSource {
     // MARK: - CLI Writeback
 
     @discardableResult
-    func markTaskComplete(task: SyncTask, completionDate: Date, config: SyncConfiguration) throws -> Int {
+    func markTaskComplete(task: SyncTask, completionDate: Date, config: SyncConfiguration, overrideNextDueDate: Date? = nil) throws -> Int {
         guard let source = task.obsidianSource else {
             throw ObsidianError.noSourceInformation
         }

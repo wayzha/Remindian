@@ -306,7 +306,7 @@ private final class MockTaskSource: TaskSource {
         return "mock-\(task.title)"
     }
 
-    func markTaskComplete(task: SyncTask, completionDate: Date, config: SyncConfiguration) throws -> Int {
+    func markTaskComplete(task: SyncTask, completionDate: Date, config: SyncConfiguration, overrideNextDueDate: Date? = nil) throws -> Int {
         XCTFail("markTaskComplete should not be called by the writeback path"); return 0
     }
     func markTaskIncomplete(task: SyncTask, config: SyncConfiguration) throws {

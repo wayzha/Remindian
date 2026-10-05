@@ -80,7 +80,7 @@ class GenericMarkdownSource: TaskSource {
     // MARK: - Writeback (surgical)
 
     @discardableResult
-    func markTaskComplete(task: SyncTask, completionDate: Date, config: SyncConfiguration) throws -> Int {
+    func markTaskComplete(task: SyncTask, completionDate: Date, config: SyncConfiguration, overrideNextDueDate: Date? = nil) throws -> Int {
         let parser = GenericMarkdownParser(settings: config.genericMarkdown)
         try surgicallyEdit(task: task, vaultPath: config.vaultPath) { line in
             parser.markComplete(line: line, completionDate: completionDate)

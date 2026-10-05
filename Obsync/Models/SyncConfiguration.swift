@@ -84,6 +84,8 @@ class SyncConfiguration: ObservableObject, Codable {
     @Published var enablePriorityWriteback: Bool
     @Published var enableNewTaskWriteback: Bool
     @Published var enableTagWriteback: Bool
+    @Published var writebackAlarmTime: Bool
+    @Published var writebackRemindAtTags: Bool
     @Published var inboxFilePath: String
     @Published var enableFileWatcher: Bool
     @Published var enableNotifications: Bool
@@ -399,7 +401,7 @@ class SyncConfiguration: ObservableObject, Codable {
         case syncCompletedTasks, deleteCompletedAfterDays, conflictResolution
         case includeDueTime, addReminderAlarm, reminderAlarmHour, hideDockIcon, forceDarkIcon, showMenuBarTaskCount, dryRunMode, enableCompletionWriteback
         case enableDueDateWriteback, enableStartDateWriteback, enablePriorityWriteback
-        case enableNewTaskWriteback, enableTagWriteback, inboxFilePath, enableFileWatcher
+        case enableNewTaskWriteback, enableTagWriteback, writebackAlarmTime, writebackRemindAtTags, inboxFilePath, enableFileWatcher
         case enableNotifications, globalHotKeyEnabled, globalHotKeyCode, globalHotKeyModifiers
         case taskSourceType, taskDestinationType, things3AuthToken, taskNotesFolder, taskNotesIntegrationMode
         case taskNotesMtnPath, taskNotesApiUrl
@@ -451,6 +453,8 @@ class SyncConfiguration: ObservableObject, Codable {
         enablePriorityWriteback: Bool = false,
         enableNewTaskWriteback: Bool = false,
         enableTagWriteback: Bool = false,
+        writebackAlarmTime: Bool = true,
+        writebackRemindAtTags: Bool = true,
         inboxFilePath: String = "Inbox.md",
         enableFileWatcher: Bool = false,
         enableNotifications: Bool = true,
@@ -527,6 +531,8 @@ class SyncConfiguration: ObservableObject, Codable {
         self.enablePriorityWriteback = enablePriorityWriteback
         self.enableNewTaskWriteback = enableNewTaskWriteback
         self.enableTagWriteback = enableTagWriteback
+        self.writebackAlarmTime = writebackAlarmTime
+        self.writebackRemindAtTags = writebackRemindAtTags
         self.inboxFilePath = inboxFilePath
         self.enableFileWatcher = enableFileWatcher
         self.enableNotifications = enableNotifications
@@ -608,6 +614,8 @@ class SyncConfiguration: ObservableObject, Codable {
         enablePriorityWriteback = try container.decodeIfPresent(Bool.self, forKey: .enablePriorityWriteback) ?? false
         enableNewTaskWriteback = try container.decodeIfPresent(Bool.self, forKey: .enableNewTaskWriteback) ?? false
         enableTagWriteback = try container.decodeIfPresent(Bool.self, forKey: .enableTagWriteback) ?? false
+        writebackAlarmTime = try container.decodeIfPresent(Bool.self, forKey: .writebackAlarmTime) ?? true
+        writebackRemindAtTags = try container.decodeIfPresent(Bool.self, forKey: .writebackRemindAtTags) ?? true
         inboxFilePath = try container.decodeIfPresent(String.self, forKey: .inboxFilePath) ?? "Inbox.md"
         enableFileWatcher = try container.decodeIfPresent(Bool.self, forKey: .enableFileWatcher) ?? false
         enableNotifications = try container.decodeIfPresent(Bool.self, forKey: .enableNotifications) ?? true
@@ -694,6 +702,8 @@ class SyncConfiguration: ObservableObject, Codable {
         try container.encode(enablePriorityWriteback, forKey: .enablePriorityWriteback)
         try container.encode(enableNewTaskWriteback, forKey: .enableNewTaskWriteback)
         try container.encode(enableTagWriteback, forKey: .enableTagWriteback)
+        try container.encode(writebackAlarmTime, forKey: .writebackAlarmTime)
+        try container.encode(writebackRemindAtTags, forKey: .writebackRemindAtTags)
         try container.encode(inboxFilePath, forKey: .inboxFilePath)
         try container.encode(enableFileWatcher, forKey: .enableFileWatcher)
         try container.encode(enableNotifications, forKey: .enableNotifications)

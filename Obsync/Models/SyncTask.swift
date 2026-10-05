@@ -441,7 +441,9 @@ extension SyncTask {
                     // For "+Project", the target list is "Project"
                     if targetList == nil {
                         let tagContent = String(tag.dropFirst()) // Remove # or +
-                        if tagContent.contains("/") {
+                        let lower = tagContent.lowercased()
+                        if lower.hasPrefix("remind-at-") { /* metadata tag, skip for routing */ }
+                        else if tagContent.contains("/") {
                             targetList = String(tagContent.split(separator: "/").first ?? Substring(tagContent))
                         } else {
                             targetList = tagContent
@@ -790,7 +792,8 @@ extension SyncTask {
         // Reminders propagate their rule into Obsidian on writeback.
         let recurrenceRule: String? = {
             guard let rule = reminder.recurrenceRules?.first else { return nil }
-            return RecurrenceConverter.format(rule: rule)
+            let due = reminder.dueDateComponents.flatMap { Calendar.current.date(from: $0) }
+            return RecurrenceConverter.format(rule: rule, dueDate: due)
         }()
 
         return SyncTask(

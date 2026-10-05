@@ -78,7 +78,7 @@ class ObsidianTasksSource: TaskSource {
     }
 
     @discardableResult
-    func markTaskComplete(task: SyncTask, completionDate: Date, config: SyncConfiguration) throws -> Int {
+    func markTaskComplete(task: SyncTask, completionDate: Date, config: SyncConfiguration, overrideNextDueDate: Date? = nil) throws -> Int {
         guard let source = task.obsidianSource else {
             throw ObsidianError.noSourceInformation
         }
@@ -87,7 +87,8 @@ class ObsidianTasksSource: TaskSource {
             lineNumber: source.lineNumber,
             originalLine: source.originalLine,
             completionDate: completionDate,
-            vaultPath: config.vaultPath
+            vaultPath: config.vaultPath,
+            overrideNextDueDate: overrideNextDueDate
         )
     }
 
@@ -127,7 +128,8 @@ class ObsidianTasksSource: TaskSource {
             task: task,
             inboxRelativePath: config.inboxFilePath,
             vaultPath: config.vaultPath,
-            globalFilter: config.globalFilter
+            globalFilter: config.globalFilter,
+            config: config
         )
         return SyncTask.ObsidianSource(
             filePath: result.filePath,

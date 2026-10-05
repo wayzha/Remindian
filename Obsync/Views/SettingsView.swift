@@ -396,7 +396,9 @@ struct GeneralSettingsView: View {
                     Toggle("Sync priority changes back", isOn: $syncManager.config.enablePriorityWriteback)
                         .help("Changing priority in \(syncManager.config.taskDestinationType.displayName) will update the priority emoji in Obsidian")
 
-                    Toggle("Sync tag changes back", isOn: $syncManager.config.enableTagWriteback)
+                            Toggle("Sync tag changes back", isOn: $syncManager.config.enableTagWriteback)
+                            Toggle("Include alarm time (⏰) in writeback", isOn: $syncManager.config.writebackAlarmTime)
+                            Toggle("Include #remind-at-due / #remind-at-start tags", isOn: $syncManager.config.writebackRemindAtTags)
                         .help("Tag changes in \(syncManager.config.taskDestinationType.displayName) will update #tags in Obsidian")
 
                     Toggle("Write new \(syncManager.config.taskDestinationType.displayName) tasks to Obsidian", isOn: $syncManager.config.enableNewTaskWriteback)
