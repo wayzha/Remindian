@@ -104,6 +104,18 @@ class ObsidianTasksSource: TaskSource {
         )
     }
 
+    func markTaskDeleted(task: SyncTask, config: SyncConfiguration) throws {
+        guard let source = task.obsidianSource else {
+            throw ObsidianError.noSourceInformation
+        }
+        try obsidianService.markTaskDeleted(
+            filePath: source.filePath,
+            lineNumber: source.lineNumber,
+            originalLine: source.originalLine,
+            vaultPath: config.vaultPath
+        )
+    }
+
     func updateTaskMetadata(task: SyncTask, changes: MetadataChanges, config: SyncConfiguration) throws {
         guard let source = task.obsidianSource else {
             throw ObsidianError.noSourceInformation

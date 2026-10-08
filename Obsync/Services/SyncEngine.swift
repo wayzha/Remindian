@@ -979,37 +979,85 @@ class SyncEngine {
                     }
 
                     if !reconnected {
-                        // Truly deleted — recreate from Obsidian
-                        do {
-                            let listName = config.resolveTargetList(tag: oTask.targetList, filePath: oTask.obsidianSource?.filePath, tags: oTask.tags, heading: oTask.obsidianSource?.sectionHeading)
-                            if !config.dryRunMode {
-                                let newId = try await destination.createTask(
-                                    from: oTask,
-                                    inList: listName,
-                                    config: config
-                                )
-                                syncState.addOrUpdateMapping(
-                                    obsidianId: mapping.obsidianId,
-                                    remindersId: newId,
-                                    obsidianHash: SyncState.generateTaskHash(oTask),
-                                    remindersHash: SyncState.generateTaskHash(oTask)
-                                )
+                        if config.enableDeletionWriteback {
+                            // Deletion writeback: the reminder was removed from the
+                            // destination. Mark the Obsidian task as completed
+                            // WITHOUT creating a new recurrence occurrence, then
+                            // drop the mapping so the engine never recreates it.
+                            let fileOk: Bool = {
+                                if let fp = oTask.obsidianSource?.filePath, filesWrittenByEngine.contains(fp) { return true }
+                                return !source.hasFileChanged(task: oTask, since: syncStartTimestamp, config: config)
+                            }()
+                            if fileOk, !config.dryRunMode {
+                                do {
+                                    var adjustedTask = oTask
+                                    if let src = oTask.obsidianSource {
+                                        let insertions = fileInsertions[src.filePath] ?? []
+                                        let offset = insertions.filter { $0 <= src.lineNumber }.count
+                                        adjustedTask.obsidianSource = SyncTask.ObsidianSource(
+                                            filePath: src.filePath,
+                                            lineNumber: src.lineNumber + offset,
+                                            originalLine: src.originalLine
+                                        )
+                                    }
+                                    debugLog("[SyncEngine] Deletion writeback: marking \"\(oTask.title)\" as completed (no recurrence)")
+                                    try source.markTaskDeleted(task: adjustedTask, config: config)
+                                    if let fp = oTask.obsidianSource?.filePath { filesWrittenByEngine.insert(fp) }
+                                } catch {
+                                    result.errors.append(error)
+                                    result.details.append(SyncLogDetail(
+                                        action: .error,
+                                        taskTitle: oTask.title,
+                                        filePath: oTask.obsidianSource?.filePath,
+                                        errorMessage: "Deletion writeback failed: \(error.localizedDescription)"
+                                    ))
+                                }
+                            } else if config.dryRunMode {
+                                debugLog("[SyncEngine] [DRY RUN] Deletion writeback: would mark \"\(oTask.title)\" as completed")
                             }
-                            result.created += 1
+                            if !config.dryRunMode {
+                                syncState.removeMapping(obsidianId: mapping.obsidianId)
+                            }
+                            result.deleted += 1
                             result.details.append(SyncLogDetail(
-                                action: .created,
-                                taskTitle: oTask.title,
+                                action: .deleted,
+                                taskTitle: (config.dryRunMode ? "[DRY RUN] " : "") + oTask.title,
                                 filePath: oTask.obsidianSource?.filePath,
-                                errorMessage: nil
+                                errorMessage: "Deletion writeback: marked completed in Obsidian"
                             ))
-                        } catch {
-                            result.errors.append(error)
-                            result.details.append(SyncLogDetail(
-                                action: .error,
-                                taskTitle: oTask.title,
-                                filePath: oTask.obsidianSource?.filePath,
-                                errorMessage: error.localizedDescription
-                            ))
+                        } else {
+                            // Legacy behavior: recreate the reminder from Obsidian
+                            do {
+                                let listName = config.resolveTargetList(tag: oTask.targetList, filePath: oTask.obsidianSource?.filePath, tags: oTask.tags, heading: oTask.obsidianSource?.sectionHeading)
+                                if !config.dryRunMode {
+                                    let newId = try await destination.createTask(
+                                        from: oTask,
+                                        inList: listName,
+                                        config: config
+                                    )
+                                    syncState.addOrUpdateMapping(
+                                        obsidianId: mapping.obsidianId,
+                                        remindersId: newId,
+                                        obsidianHash: SyncState.generateTaskHash(oTask),
+                                        remindersHash: SyncState.generateTaskHash(oTask)
+                                    )
+                                }
+                                result.created += 1
+                                result.details.append(SyncLogDetail(
+                                    action: .created,
+                                    taskTitle: oTask.title,
+                                    filePath: oTask.obsidianSource?.filePath,
+                                    errorMessage: nil
+                                ))
+                            } catch {
+                                result.errors.append(error)
+                                result.details.append(SyncLogDetail(
+                                    action: .error,
+                                    taskTitle: oTask.title,
+                                    filePath: oTask.obsidianSource?.filePath,
+                                    errorMessage: error.localizedDescription
+                                ))
+                            }
                         }
                     }
                     processedObsidianIds.insert(mapping.obsidianId)

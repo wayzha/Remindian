@@ -387,6 +387,9 @@ struct GeneralSettingsView: View {
                     Toggle("Sync completions back", isOn: $syncManager.config.enableCompletionWriteback)
                         .help("Marking a task complete in \(syncManager.config.taskDestinationType.displayName) will update the checkbox and add a completion date in Obsidian")
 
+                    Toggle("Sync deletions back", isOn: $syncManager.config.enableDeletionWriteback)
+                        .help("Deleting a task in \(syncManager.config.taskDestinationType.displayName) will mark it completed in Obsidian instead of recreating it. Recurring tasks will not produce new occurrences.")
+
                     Toggle("Sync due date changes back", isOn: $syncManager.config.enableDueDateWriteback)
                         .help("Changing a due date in \(syncManager.config.taskDestinationType.displayName) will update the \u{1F4C5} date in Obsidian")
 
@@ -415,7 +418,7 @@ struct GeneralSettingsView: View {
                         .padding(.leading, 20)
                     }
 
-                    if syncManager.config.enableCompletionWriteback || syncManager.config.enableDueDateWriteback || syncManager.config.enableStartDateWriteback || syncManager.config.enablePriorityWriteback || syncManager.config.enableTagWriteback || syncManager.config.enableNewTaskWriteback {
+                    if syncManager.config.enableCompletionWriteback || syncManager.config.enableDeletionWriteback || syncManager.config.enableDueDateWriteback || syncManager.config.enableStartDateWriteback || syncManager.config.enablePriorityWriteback || syncManager.config.enableTagWriteback || syncManager.config.enableNewTaskWriteback {
                         HStack(spacing: 4) {
                             Image(systemName: "exclamationmark.triangle")
                                 .foregroundColor(.orange)

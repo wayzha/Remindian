@@ -24,6 +24,14 @@ protocol TaskSource {
     /// Surgically mark a task as incomplete in the source.
     func markTaskIncomplete(task: SyncTask, config: SyncConfiguration) throws
 
+    /// Surgically mark a task as completed in the source WITHOUT creating a new
+    /// recurrence occurrence. Used when a destination task is deleted (not just
+    /// completed) and deletion writeback is enabled — the Obsidian line should
+    /// become `- [x]` with a ✅ date, but no next occurrence should be inserted.
+    /// Defaults to `markTaskComplete` for sources that don't handle recurrence
+    /// insertion (TaskNotes, Generic Markdown).
+    func markTaskDeleted(task: SyncTask, config: SyncConfiguration) throws
+
     /// Surgically update task metadata (due date, start date, priority) in the source.
     func updateTaskMetadata(task: SyncTask, changes: MetadataChanges, config: SyncConfiguration) throws
 
@@ -51,5 +59,9 @@ extension TaskSource {
     @discardableResult
     func markTaskComplete(task: SyncTask, completionDate: Date, config: SyncConfiguration) throws -> Int {
         try markTaskComplete(task: task, completionDate: completionDate, config: config, overrideNextDueDate: nil)
+    }
+
+    func markTaskDeleted(task: SyncTask, config: SyncConfiguration) throws {
+        try markTaskComplete(task: task, completionDate: Date(), config: config)
     }
 }

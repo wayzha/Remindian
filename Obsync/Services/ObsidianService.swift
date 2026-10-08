@@ -907,6 +907,81 @@ class ObsidianService {
         return linesInserted
     }
 
+    /// Mark a task as completed without inserting a new recurrence occurrence.
+    /// Used for deletion writeback: the user deleted the reminder, so the
+    /// Obsidian line should become `- [x]` but the recurring series must stop.
+    func markTaskDeleted(
+        filePath: String,
+        lineNumber: Int,
+        originalLine: String,
+        vaultPath: String
+    ) throws {
+        let fileURL = URL(fileURLWithPath: vaultPath + filePath)
+
+        guard fileManager.fileExists(atPath: fileURL.path) else {
+            throw ObsidianError.fileNotFound(fileURL.path)
+        }
+
+        FileWatcherService.shared.registerSelfModification(fileURL.path)
+        try backupService.backupFile(at: fileURL)
+
+        let content = try String(contentsOf: fileURL, encoding: .utf8)
+        var lines = content.components(separatedBy: "\n")
+
+        let resolvedIndex: Int
+        switch resolveTaskLine(in: lines, storedLineNumber: lineNumber,
+                               originalLine: originalLine, wantCompleted: false) {
+        case .found(let idx):
+            resolvedIndex = idx
+        case .alreadyInDesiredState:
+            debugLog("[ObsidianService] Task already completed for deletion writeback, skipping: \(originalLine.prefix(80))")
+            return
+        case .notFound:
+            debugLog("[ObsidianService] Task line not found for deletion writeback, skipping: \(originalLine.prefix(80))")
+            return
+        }
+
+        let currentLine = lines[resolvedIndex]
+
+        guard let currentCheckbox = SyncTask.extractCheckbox(from: currentLine.trimmingCharacters(in: .whitespaces)) else {
+            debugLog("[ObsidianService] Line is not a task (deletion writeback), skipping: \(currentLine.prefix(80))")
+            return
+        }
+        if SyncTask.defaultCompletedMarkers.contains(currentCheckbox.marker) {
+            debugLog("[ObsidianService] Task already completed (deletion writeback), skipping: \(currentLine.prefix(80))")
+            return
+        }
+
+        var newLine = currentLine
+        if let checkboxRange = newLine.range(of: "- [\(currentCheckbox.marker)]") {
+            newLine.replaceSubrange(checkboxRange, with: "- [x]")
+        }
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        let dateStr = formatter.string(from: Date())
+        if !newLine.contains("\u{2705}") {
+            let trimmedEnd = newLine.replacingOccurrences(
+                of: "\\s+$", with: "", options: .regularExpression
+            )
+            newLine = trimmedEnd + " \u{2705} \(dateStr)"
+        }
+
+        // Intentionally NO recurrence handling — the series is terminated.
+        lines[resolvedIndex] = newLine
+
+        let newContent = lines.joined(separator: "\n")
+        try newContent.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        auditLog.logFileModification(
+            action: "markTaskDeleted",
+            filePath: filePath,
+            lineNumber: resolvedIndex + 1,
+            beforeLine: currentLine,
+            afterLine: newLine
+        )
+    }
+
     /// Surgically mark a task as incomplete in its Obsidian source file.
     /// Reverses completion: changes "- [x]" to "- [ ]" and removes ✅ date.
     func markTaskIncomplete(

@@ -79,6 +79,7 @@ class SyncConfiguration: ObservableObject, Codable {
     @Published var showMenuBarTaskCount: Bool
     @Published var dryRunMode: Bool
     @Published var enableCompletionWriteback: Bool
+    @Published var enableDeletionWriteback: Bool
     @Published var enableDueDateWriteback: Bool
     @Published var enableStartDateWriteback: Bool
     @Published var enablePriorityWriteback: Bool
@@ -400,7 +401,7 @@ class SyncConfiguration: ObservableObject, Codable {
         case listMappings, headingMappings, defaultList, taskFilesPattern, excludedFolders, includedFolders, includedNoteTags
         case syncCompletedTasks, deleteCompletedAfterDays, conflictResolution
         case includeDueTime, addReminderAlarm, reminderAlarmHour, hideDockIcon, forceDarkIcon, showMenuBarTaskCount, dryRunMode, enableCompletionWriteback
-        case enableDueDateWriteback, enableStartDateWriteback, enablePriorityWriteback
+        case enableDeletionWriteback, enableDueDateWriteback, enableStartDateWriteback, enablePriorityWriteback
         case enableNewTaskWriteback, enableTagWriteback, writebackAlarmTime, writebackRemindAtTags, inboxFilePath, enableFileWatcher
         case enableNotifications, globalHotKeyEnabled, globalHotKeyCode, globalHotKeyModifiers
         case taskSourceType, taskDestinationType, things3AuthToken, taskNotesFolder, taskNotesIntegrationMode
@@ -448,6 +449,7 @@ class SyncConfiguration: ObservableObject, Codable {
         showMenuBarTaskCount: Bool = true,
         dryRunMode: Bool = false,
         enableCompletionWriteback: Bool = true,
+        enableDeletionWriteback: Bool = false,
         enableDueDateWriteback: Bool = false,
         enableStartDateWriteback: Bool = false,
         enablePriorityWriteback: Bool = false,
@@ -526,6 +528,7 @@ class SyncConfiguration: ObservableObject, Codable {
         self.showMenuBarTaskCount = showMenuBarTaskCount
         self.dryRunMode = dryRunMode
         self.enableCompletionWriteback = enableCompletionWriteback
+        self.enableDeletionWriteback = enableDeletionWriteback
         self.enableDueDateWriteback = enableDueDateWriteback
         self.enableStartDateWriteback = enableStartDateWriteback
         self.enablePriorityWriteback = enablePriorityWriteback
@@ -609,6 +612,7 @@ class SyncConfiguration: ObservableObject, Codable {
         showMenuBarTaskCount = try container.decodeIfPresent(Bool.self, forKey: .showMenuBarTaskCount) ?? true
         dryRunMode = try container.decodeIfPresent(Bool.self, forKey: .dryRunMode) ?? false
         enableCompletionWriteback = try container.decodeIfPresent(Bool.self, forKey: .enableCompletionWriteback) ?? true
+        enableDeletionWriteback = try container.decodeIfPresent(Bool.self, forKey: .enableDeletionWriteback) ?? false
         enableDueDateWriteback = try container.decodeIfPresent(Bool.self, forKey: .enableDueDateWriteback) ?? false
         enableStartDateWriteback = try container.decodeIfPresent(Bool.self, forKey: .enableStartDateWriteback) ?? false
         enablePriorityWriteback = try container.decodeIfPresent(Bool.self, forKey: .enablePriorityWriteback) ?? false
@@ -697,6 +701,7 @@ class SyncConfiguration: ObservableObject, Codable {
         try container.encode(showMenuBarTaskCount, forKey: .showMenuBarTaskCount)
         try container.encode(dryRunMode, forKey: .dryRunMode)
         try container.encode(enableCompletionWriteback, forKey: .enableCompletionWriteback)
+        try container.encode(enableDeletionWriteback, forKey: .enableDeletionWriteback)
         try container.encode(enableDueDateWriteback, forKey: .enableDueDateWriteback)
         try container.encode(enableStartDateWriteback, forKey: .enableStartDateWriteback)
         try container.encode(enablePriorityWriteback, forKey: .enablePriorityWriteback)
