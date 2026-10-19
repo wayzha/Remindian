@@ -760,7 +760,7 @@ class SyncEngine {
                             // All changes are applied atomically in a single file write.
                             // Skip if completion writeback already modified this task's
                             // vault line — originalLine is stale and the task is done.
-                            if rChanged && !oChanged && !completionWritebackIds.contains(mapping.obsidianId) && !implicitRecurringCompletion {
+                            if rChanged && !oChanged && !completionWritebackIds.contains(mapping.obsidianId) && !(implicitRecurringCompletion && config.enableCompletionWriteback) {
                                 if !fileNotModifiedBeforeSync {
                                     // File mtime bumped between sync start and now.
                                     // Without this branch the writeback would silently
@@ -1124,14 +1124,38 @@ class SyncEngine {
                     if let candidateId = bestCandidateId, let candidateTask = bestCandidateTask {
                         // Found a matching Obsidian task — re-link the mapping
                         debugLog("[SyncEngine] Re-linking mapping for \"\(rTask.title)\": old obsidianId changed, remapping to new ID (score=\(bestScore))")
+
+                        // Detect implicit recurring completion during re-link:
+                        // Apple auto-reset a recurring reminder (both sides open,
+                        // dueDate advanced) but a line-number shift changed the
+                        // obsidianId, forcing a re-link. Store the obsidian hash
+                        // as the reminders hash so the next sync cycle sees
+                        // rChanged=true and triggers the implicit-recurring-
+                        // completion handler (or metadata writeback). Without
+                        // this the fresh rTask hash is stored, rChanged stays
+                        // false on the next sync, and the due-date advance is
+                        // permanently lost.
+                        let implicitRecurringOnRelink: Bool = {
+                            guard !rTask.isCompleted, !candidateTask.isCompleted,
+                                  candidateTask.recurrenceRule != nil,
+                                  let oDue = candidateTask.dueDate,
+                                  let rDue = rTask.dueDate else { return false }
+                            return Calendar.current.compare(rDue, to: oDue, toGranularity: .day) == .orderedDescending
+                        }()
+
                         if !config.dryRunMode {
                             syncState.removeMapping(obsidianId: mapping.obsidianId)
                             syncState.addOrUpdateMapping(
                                 obsidianId: candidateId,
                                 remindersId: mapping.remindersId,
                                 obsidianHash: SyncState.generateTaskHash(candidateTask),
-                                remindersHash: SyncState.generateTaskHash(rTask)
+                                remindersHash: implicitRecurringOnRelink
+                                    ? SyncState.generateTaskHash(candidateTask)
+                                    : SyncState.generateTaskHash(rTask)
                             )
+                        }
+                        if implicitRecurringOnRelink {
+                            debugLog("[SyncEngine] Implicit recurring completion on re-link for \"\(candidateTask.title)\": stored obsidian hash to trigger detection next sync")
                         }
                         processedObsidianIds.insert(candidateId)
                         relinkedRemindersIds.insert(mapping.remindersId)
@@ -1140,8 +1164,72 @@ class SyncEngine {
                             action: .updated,
                             taskTitle: rTask.title,
                             filePath: candidateTask.obsidianSource?.filePath,
-                            errorMessage: "Re-linked after ID change"
+                            errorMessage: implicitRecurringOnRelink
+                                ? "Re-linked after ID change (implicit recurring completion pending)"
+                                : "Re-linked after ID change"
                         ))
+
+                        // Implicit recurring completion on re-link: both sides
+                        // are open but the reminder's due date advanced past the
+                        // Obsidian task's (Apple auto-reset after completion).
+                        // Write back the old occurrence as completed and insert
+                        // the next occurrence — same as the .some/.some handler.
+                        if implicitRecurringOnRelink, config.enableCompletionWriteback {
+                            let fileOk: Bool = {
+                                if let fp = candidateTask.obsidianSource?.filePath, filesWrittenByEngine.contains(fp) { return true }
+                                return !source.hasFileChanged(task: candidateTask, since: syncStartTimestamp, config: config)
+                            }()
+                            if fileOk, !config.dryRunMode {
+                                do {
+                                    var adjustedTask = candidateTask
+                                    if let src = candidateTask.obsidianSource {
+                                        let insertions = fileInsertions[src.filePath] ?? []
+                                        let offset = insertions.filter { $0 <= src.lineNumber }.count
+                                        adjustedTask.obsidianSource = SyncTask.ObsidianSource(
+                                            filePath: src.filePath,
+                                            lineNumber: src.lineNumber + offset,
+                                            originalLine: src.originalLine
+                                        )
+                                    }
+                                    let completionDate = candidateTask.dueDate ?? Date()
+                                    debugLog("[SyncEngine] Implicit recurring completion on re-link: \"\(candidateTask.title)\"")
+                                    let inserted = try source.markTaskComplete(
+                                        task: adjustedTask,
+                                        completionDate: completionDate,
+                                        config: config,
+                                        overrideNextDueDate: rTask.dueDate
+                                    )
+                                    if inserted > 0, let src = candidateTask.obsidianSource {
+                                        fileInsertions[src.filePath, default: []].append(src.lineNumber)
+                                    }
+                                    if let fp = candidateTask.obsidianSource?.filePath { filesWrittenByEngine.insert(fp) }
+                                    completionWritebackIds.insert(candidateId)
+                                    result.completionsWrittenBack += 1
+                                    result.details.append(SyncLogDetail(
+                                        action: .completionWriteback,
+                                        taskTitle: candidateTask.title,
+                                        filePath: candidateTask.obsidianSource?.filePath,
+                                        errorMessage: "Implicit recurring completion (re-link)"
+                                    ))
+                                } catch {
+                                    result.errors.append(error)
+                                    result.details.append(SyncLogDetail(
+                                        action: .error,
+                                        taskTitle: candidateTask.title,
+                                        filePath: candidateTask.obsidianSource?.filePath,
+                                        errorMessage: "Implicit recurring completion on re-link failed: \(error.localizedDescription)"
+                                    ))
+                                }
+                            } else if config.dryRunMode {
+                                result.completionsWrittenBack += 1
+                                result.details.append(SyncLogDetail(
+                                    action: .completionWriteback,
+                                    taskTitle: "[DRY RUN] " + candidateTask.title,
+                                    filePath: candidateTask.obsidianSource?.filePath,
+                                    errorMessage: "Implicit recurring completion (re-link)"
+                                ))
+                            }
+                        }
 
                         // Completion writeback on re-link: when the re-linked
                         // reminder is completed but the Obsidian task is open,
