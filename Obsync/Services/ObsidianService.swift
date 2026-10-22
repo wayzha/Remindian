@@ -1403,6 +1403,32 @@ class ObsidianService {
             }
         }
 
+        // "every week on Monday" / "every 2 weeks on Tuesday"
+        if let weekOnDayRegex = try? NSRegularExpression(pattern: "^(?:(\\d+)\\s*)?weeks?\\s+on\\s+(\\w+)$"),
+           let weekOnDayMatch = weekOnDayRegex.firstMatch(in: rest, range: NSRange(rest.startIndex..., in: rest)) {
+            let interval: Int
+            if let intRange = Range(weekOnDayMatch.range(at: 1), in: rest), let n = Int(String(rest[intRange])) {
+                interval = n
+            } else {
+                interval = 1
+            }
+            if let dayRange = Range(weekOnDayMatch.range(at: 2), in: rest) {
+                let dayName = String(rest[dayRange]).lowercased()
+                if let targetWeekday = weekdayNumber(from: dayName) {
+                    // Find the next target weekday strictly after baseDate
+                    var candidate = calendar.date(byAdding: .day, value: 1, to: baseDate)!
+                    while calendar.component(.weekday, from: candidate) != targetWeekday {
+                        candidate = calendar.date(byAdding: .day, value: 1, to: candidate)!
+                    }
+                    // For intervals > 1, advance additional (interval-1) weeks
+                    if interval > 1 {
+                        candidate = calendar.date(byAdding: .weekOfYear, value: interval - 1, to: candidate)!
+                    }
+                    return candidate
+                }
+            }
+        }
+
         // "every month on the 20th" / "every 2 months on the last" (for non-"when done" rules)
         // Must check this BEFORE plain "every month" to avoid premature matching.
         if let _ = rest.matchFirst(pattern: "^(?:(\\d+)\\s*)?months?\\s+on\\s+the\\s+(.+)$") {
@@ -1496,6 +1522,20 @@ class ObsidianService {
         }
 
         return nil
+    }
+
+    /// Map an English weekday name to a Calendar weekday number (1=Sunday … 7=Saturday).
+    private func weekdayNumber(from name: String) -> Int? {
+        switch name {
+        case "sunday", "sun": return 1
+        case "monday", "mon": return 2
+        case "tuesday", "tue", "tues": return 3
+        case "wednesday", "wed": return 4
+        case "thursday", "thu", "thur", "thurs": return 5
+        case "friday", "fri": return 6
+        case "saturday", "sat": return 7
+        default: return nil
+        }
     }
 
     /// Build the new recurrence line from the original line by:

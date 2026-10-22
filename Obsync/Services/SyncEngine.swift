@@ -748,10 +748,26 @@ class SyncEngine {
                             // Handle: completed in Obsidian, incomplete in Reminders.
                             // Obsidian is the source of truth — update Reminders to match.
                             // DO NOT revert Obsidian's completion state (#16).
+                            //
+                            // Exception for recurring tasks: when Apple auto-resets a
+                            // recurring reminder after completion (isCompleted → false,
+                            // dueDate → next occurrence), the Obsidian [x] line is the
+                            // completed *occurrence* — pushing completion again just
+                            // makes Apple auto-reset again, creating an infinite loop
+                            // that advances the date into the far future.
                             if completionDiffers && !rTask.isCompleted && oTask.isCompleted {
-                                taskForReminders.isCompleted = true
-                                taskForReminders.completedDate = oTask.completedDate ?? Date()
-                                debugLog("[SyncEngine] Task completed in Obsidian, updating Reminders: \"\(oTask.title)\"")
+                                let isRecurringAutoReset: Bool = {
+                                    guard oTask.recurrenceRule != nil,
+                                          let rDue = rTask.dueDate, let oDue = oTask.dueDate else { return false }
+                                    return Calendar.current.compare(rDue, to: oDue, toGranularity: .day) == .orderedDescending
+                                }()
+                                if isRecurringAutoReset {
+                                    debugLog("[SyncEngine] Recurring auto-reset detected for \"\(oTask.title)\": Obsidian due=\(oTask.dueDate?.description ?? "nil"), Reminders due=\(rTask.dueDate?.description ?? "nil") — not pushing completion back (would loop)")
+                                } else {
+                                    taskForReminders.isCompleted = true
+                                    taskForReminders.completedDate = oTask.completedDate ?? Date()
+                                    debugLog("[SyncEngine] Task completed in Obsidian, updating Reminders: \"\(oTask.title)\"")
+                                }
                             }
 
                             // MARK: Metadata writeback (due date, start date, priority)
@@ -760,7 +776,11 @@ class SyncEngine {
                             // All changes are applied atomically in a single file write.
                             // Skip if completion writeback already modified this task's
                             // vault line — originalLine is stale and the task is done.
-                            if rChanged && !oChanged && !completionWritebackIds.contains(mapping.obsidianId) && !(implicitRecurringCompletion && config.enableCompletionWriteback) {
+                            // Also skip when completion states differ: for recurring tasks,
+                            // Apple auto-resets the reminder after completion (advancing its
+                            // due date), and writing that advanced date back to the completed
+                            // Obsidian line would cause it to drift into the far future.
+                            if rChanged && !oChanged && !completionDiffers && !completionWritebackIds.contains(mapping.obsidianId) && !(implicitRecurringCompletion && config.enableCompletionWriteback) {
                                 if !fileNotModifiedBeforeSync {
                                     // File mtime bumped between sync start and now.
                                     // Without this branch the writeback would silently
