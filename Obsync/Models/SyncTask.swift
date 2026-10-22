@@ -214,6 +214,12 @@ extension SyncTask {
         // time (group 1) is used for merging.
         static let alarmTime = make("⏰\u{FE0F}?\\s*(?:\\d{4}-\\d{2}-\\d{2}[ T])?(\\d{1,2}:\\d{2})")
 
+        // Metadata tokens that are meaningful to other tools (TaskForge, Obsidian
+        // Tasks) but not to Remindian. Stripped from the title so Reminders stays
+        // clean.  ➕ = created date,  🆔 = task ID.
+        static let createdDate = make("➕\u{FE0F}?\\s*\\d{4}-\\d{2}-\\d{2}")
+        static let taskId = make("\u{1F194}\u{FE0F}?\\s*[\\w-]+")
+
         // Protected ranges for tag extraction (#65).
         static let url = make("https?://[^\\s)\\]]+")
         static let wikilink = make("\\[\\[[^\\]]*\\]\\]")
@@ -824,6 +830,21 @@ extension SyncTask {
     ///   field can opt back in via the corresponding Settings toggle.
     /// Compute when a reminder's alarm should fire for a given due date. (#6)
     ///
+    /// Strip metadata tokens from other tools (TaskForge ➕ created date,
+    /// 🆔 task ID) that are meaningful to those tools but noise for Reminders
+    /// and hash comparison.
+    static func displayTitle(_ title: String) -> String {
+        var result = title
+        for regex in [Rx.createdDate, Rx.taskId] {
+            let range = NSRange(result.startIndex..., in: result)
+            result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: "")
+        }
+        while result.contains("  ") {
+            result = result.replacingOccurrences(of: "  ", with: " ")
+        }
+        return result.trimmingCharacters(in: .whitespaces)
+    }
+
     /// If the due date carries a real time-of-day (and time sync is on), the
     /// alarm fires at that exact moment. Otherwise (an all-day due) it fires at
     /// `allDayHour:00` on the due day so the user still gets a notification
@@ -837,7 +858,9 @@ extension SyncTask {
     }
 
     func applyToReminder(_ reminder: EKReminder, includeDueTime: Bool = false, addTaskLink: Bool = false, vaultPath: String = "", appendLinkToNotes: Bool = false, addReminderAlarm: Bool = false, allDayAlarmHour: Int = 9) {
-        reminder.title = title
+        // Strip metadata tokens from other tools (TaskForge, Obsidian Tasks)
+        // so the Reminders title stays clean.
+        reminder.title = SyncTask.displayTitle(title)
         reminder.isCompleted = isCompleted
         reminder.priority = priority.toRemindersPriority
 

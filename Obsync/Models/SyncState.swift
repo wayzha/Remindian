@@ -339,7 +339,7 @@ class SyncState: Codable {
     /// Generate a hash of all task fields to detect any changes.
     static func generateTaskHash(_ task: SyncTask) -> String {
         let components = [
-            task.title,
+            SyncTask.displayTitle(task.title),
             String(task.isCompleted),
             String(task.priority.rawValue),
             task.dueDate?.ISO8601Format() ?? "",
