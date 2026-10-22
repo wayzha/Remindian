@@ -843,7 +843,15 @@ extension SyncTask {
 
         if let dueDate = dueDate {
             if includeDueTime {
-                reminder.dueDateComponents = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: dueDate)
+                let comps = Calendar.current.dateComponents([.hour, .minute], from: dueDate)
+                let hasTimeOfDay = (comps.hour ?? 0) != 0 || (comps.minute ?? 0) != 0
+                if hasTimeOfDay {
+                    reminder.dueDateComponents = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: dueDate)
+                } else {
+                    // No explicit time (midnight = no ⏰ token) — date-only so
+                    // Reminders treats it as an all-day reminder.
+                    reminder.dueDateComponents = Calendar.current.dateComponents([.year, .month, .day], from: dueDate)
+                }
             } else {
                 // Only date, no time - this creates an all-day reminder
                 reminder.dueDateComponents = Calendar.current.dateComponents([.year, .month, .day], from: dueDate)
@@ -854,7 +862,13 @@ extension SyncTask {
 
         if let startDate = startDate {
             if includeDueTime {
-                reminder.startDateComponents = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: startDate)
+                let comps = Calendar.current.dateComponents([.hour, .minute], from: startDate)
+                let hasTimeOfDay = (comps.hour ?? 0) != 0 || (comps.minute ?? 0) != 0
+                if hasTimeOfDay {
+                    reminder.startDateComponents = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: startDate)
+                } else {
+                    reminder.startDateComponents = Calendar.current.dateComponents([.year, .month, .day], from: startDate)
+                }
             } else {
                 reminder.startDateComponents = Calendar.current.dateComponents([.year, .month, .day], from: startDate)
             }
@@ -912,12 +926,23 @@ extension SyncTask {
         }
 
         // Alarm (#6) — opt-in. A synced reminder with a due date otherwise never
-        // notifies the user. We only ADD an alarm when the reminder has none, so
-        // we never duplicate on repeated syncs nor clobber a user-added alarm.
+        // notifies the user. Keeps the alarm in sync with the current due date:
+        // if the correct fire date already exists, no-op; otherwise remove any
+        // stale absolute-date alarms Remindian previously set and add the right
+        // one. Relative-offset alarms (user-added in Reminders.app) are preserved.
         // Completed reminders get no alarm.
-        if addReminderAlarm, !isCompleted, let due = dueDate, (reminder.alarms?.isEmpty ?? true) {
+        if addReminderAlarm, !isCompleted, let due = dueDate {
             let fire = SyncTask.alarmFireDate(due: due, includeTime: includeDueTime, allDayHour: allDayAlarmHour)
-            reminder.addAlarm(EKAlarm(absoluteDate: fire))
+            let hasCorrectAlarm = (reminder.alarms ?? []).contains {
+                guard let d = $0.absoluteDate else { return false }
+                return abs(d.timeIntervalSince(fire)) < 60
+            }
+            if !hasCorrectAlarm {
+                for alarm in (reminder.alarms ?? []) where alarm.absoluteDate != nil {
+                    reminder.removeAlarm(alarm)
+                }
+                reminder.addAlarm(EKAlarm(absoluteDate: fire))
+            }
         }
 
         // Recurrence rule (#57 Phase B) — convert our preserved Obsidian-format
