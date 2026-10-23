@@ -126,6 +126,8 @@ class ObsidianTasksSource: TaskSource {
         obsChanges.newStartDate = changes.newStartDate
         obsChanges.newPriority = changes.newPriority
         obsChanges.newTags = changes.newTags
+        obsChanges.newTitle = changes.newTitle
+        obsChanges.newRecurrenceRule = changes.newRecurrenceRule
         try obsidianService.updateTaskMetadata(
             filePath: source.filePath,
             lineNumber: source.lineNumber,

@@ -1059,9 +1059,11 @@ class ObsidianService {
         var newStartDate: Date?? = nil
         var newPriority: SyncTask.Priority? = nil  // nil = no change
         var newTags: [String]? = nil  // nil = no change, [] = remove all, ["#tag"] = set
+        var newTitle: String? = nil  // nil = no change
+        var newRecurrenceRule: String?? = nil  // nil = no change, .some(nil) = remove, .some(rule) = set
 
         var hasChanges: Bool {
-            return newDueDate != nil || newStartDate != nil || newPriority != nil || newTags != nil
+            return newDueDate != nil || newStartDate != nil || newPriority != nil || newTags != nil || newTitle != nil || newRecurrenceRule != nil
         }
     }
 
@@ -1133,6 +1135,17 @@ class ObsidianService {
         // Apply tag changes (#17 — GoodTask tag writeback)
         if let newTags = changes.newTags {
             newLine = applyTagChange(to: newLine, newTags: newTags)
+        }
+
+        // Apply title change — replace the text portion of the task line
+        // (everything before the first metadata emoji token).
+        if let newTitle = changes.newTitle, !newTitle.isEmpty {
+            newLine = applyTitleChange(to: newLine, newTitle: newTitle)
+        }
+
+        // Apply recurrence rule change (🔁)
+        if let recurrenceChange = changes.newRecurrenceRule {
+            newLine = applyRecurrenceChange(to: newLine, newRule: recurrenceChange)
         }
 
         // Trim trailing whitespace only (not internal spacing)
@@ -1278,6 +1291,52 @@ class ObsidianService {
         // Collapse runs of spaces in one pass (was an O(n^2) while-loop). (perf)
         newLine = newLine.replacingOccurrences(of: " {2,}", with: " ", options: .regularExpression)
 
+        return newLine
+    }
+
+    /// Replace the title portion of a task line, preserving the checkbox and all
+    /// metadata tokens (dates, tags, recurrence, etc.).
+    private func applyTitleChange(to line: String, newTitle: String) -> String {
+        guard let prefixRange = line.range(of: "- \\[.\\] ", options: .regularExpression) else {
+            return line
+        }
+        let prefix = String(line[..<prefixRange.upperBound])
+        let afterCheckbox = String(line[prefixRange.upperBound...])
+        let metaPattern = "[📅🛫⏳✅⏫🔼🔽⏰🔁🔂➕🆔#]"
+        if let metaRegex = try? NSRegularExpression(pattern: metaPattern),
+           let firstMeta = metaRegex.firstMatch(in: afterCheckbox,
+                                                 range: NSRange(afterCheckbox.startIndex..., in: afterCheckbox)),
+           let metaStart = Range(firstMeta.range, in: afterCheckbox) {
+            let metadataPart = String(afterCheckbox[metaStart.lowerBound...])
+            return prefix + newTitle + " " + metadataPart
+        }
+        return prefix + newTitle
+    }
+
+    /// Replace or remove the recurrence rule token (🔁 ...) in a task line.
+    private func applyRecurrenceChange(to line: String, newRule: String?) -> String {
+        var newLine = line
+        // Match existing 🔁 token and its rule text
+        let recurrencePattern = "\\s*\u{1F501}\u{FE0F}?\\s+[^📅🛫⏳✅⏫🔼🔽⏰➕🆔#]*"
+        if let regex = try? NSRegularExpression(pattern: recurrencePattern),
+           let match = regex.firstMatch(in: newLine, range: NSRange(newLine.startIndex..., in: newLine)),
+           let matchRange = Range(match.range, in: newLine) {
+            if let rule = newRule {
+                newLine.replaceSubrange(matchRange, with: " 🔁 \(rule)")
+            } else {
+                newLine.replaceSubrange(matchRange, with: "")
+            }
+        } else if let rule = newRule {
+            // No existing 🔁 — insert before the first date emoji
+            let datePattern = "[📅🛫⏳]"
+            if let dateRegex = try? NSRegularExpression(pattern: datePattern),
+               let dateMatch = dateRegex.firstMatch(in: newLine, range: NSRange(newLine.startIndex..., in: newLine)),
+               let insertPoint = Range(dateMatch.range, in: newLine) {
+                newLine.insert(contentsOf: "🔁 \(rule) ", at: insertPoint.lowerBound)
+            } else {
+                newLine += " 🔁 \(rule)"
+            }
+        }
         return newLine
     }
 

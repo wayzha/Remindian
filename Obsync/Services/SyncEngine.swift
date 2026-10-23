@@ -623,10 +623,25 @@ class SyncEngine {
                             // Reminders values so we don't revert the user's edits.
                             // The metadata writeback will selectively write enabled
                             // fields back to Obsidian.
-                            if rChanged && !oChanged && !completionDiffers {
+                            //
+                            // Also applies when the user edited metadata AND completed
+                            // in Reminders at the same time — we still need to preserve
+                            // their edits. The only exception is the "auto-reset" case
+                            // (Obsidian completed, Reminders auto-reset by Apple) where
+                            // the Reminders values are Apple's auto-advanced dates, not
+                            // user edits.
+                            let isAutoReset = completionDiffers && oTask.isCompleted && !rTask.isCompleted
+                            if rChanged && !oChanged && !isAutoReset {
                                 taskForReminders.dueDate = rTask.dueDate
                                 taskForReminders.startDate = rTask.startDate
                                 taskForReminders.priority = rTask.priority
+                                // Preserve title and recurrence edits from Reminders
+                                if rTask.title != SyncTask.displayTitle(oTask.title) {
+                                    taskForReminders.title = rTask.title
+                                }
+                                if rTask.recurrenceRule != oTask.recurrenceRule {
+                                    taskForReminders.recurrenceRule = rTask.recurrenceRule
+                                }
                             }
 
                             // If completed in Reminders but not in Obsidian, keep it completed
@@ -770,17 +785,16 @@ class SyncEngine {
                                 }
                             }
 
-                            // MARK: Metadata writeback (due date, start date, priority)
+                            // MARK: Metadata writeback (due date, start date, priority, title, recurrence)
                             // Write back when Reminders changed but Obsidian didn't
                             // (meaning the change originated from Reminders, not Obsidian).
                             // All changes are applied atomically in a single file write.
                             // Skip if completion writeback already modified this task's
                             // vault line — originalLine is stale and the task is done.
-                            // Also skip when completion states differ: for recurring tasks,
-                            // Apple auto-resets the reminder after completion (advancing its
-                            // due date), and writing that advanced date back to the completed
-                            // Obsidian line would cause it to drift into the far future.
-                            if rChanged && !oChanged && !completionDiffers && !completionWritebackIds.contains(mapping.obsidianId) && !(implicitRecurringCompletion && config.enableCompletionWriteback) {
+                            // Also skip for the "auto-reset" case (Obsidian completed,
+                            // Apple auto-reset the recurring reminder) where the Reminders
+                            // values are Apple-generated, not user edits.
+                            if rChanged && !oChanged && !isAutoReset && !completionWritebackIds.contains(mapping.obsidianId) && !(implicitRecurringCompletion && config.enableCompletionWriteback) {
                                 if !fileNotModifiedBeforeSync {
                                     // File mtime bumped between sync start and now.
                                     // Without this branch the writeback would silently
@@ -837,6 +851,26 @@ class SyncEngine {
                                             taskForReminders.tags = rTask.tags
                                             changeDescriptions.append("Tags → \(rTask.tags.joined(separator: ", "))")
                                         }
+                                    }
+
+                                    // Title writeback — the user renamed the task in Reminders.
+                                    // Compare cleaned titles to ignore ➕/🆔 tokens.
+                                    let rClean = SyncTask.displayTitle(rTask.title)
+                                    let oClean = SyncTask.displayTitle(oTask.title)
+                                    if rClean != oClean && !rClean.isEmpty {
+                                        debugLog("[SyncEngine] Title changed in destination for \"\(oTask.title)\" → \"\(rTask.title)\"")
+                                        metadataChanges.newTitle = rClean
+                                        taskForReminders.title = rTask.title
+                                        changeDescriptions.append("Title → \(rClean)")
+                                    }
+
+                                    // Recurrence rule writeback — the user changed the
+                                    // repeat schedule in Reminders.
+                                    if rTask.recurrenceRule != oTask.recurrenceRule {
+                                        debugLog("[SyncEngine] Recurrence changed in destination for \"\(oTask.title)\": \(oTask.recurrenceRule ?? "none") → \(rTask.recurrenceRule ?? "none")")
+                                        metadataChanges.newRecurrenceRule = rTask.recurrenceRule
+                                        taskForReminders.recurrenceRule = rTask.recurrenceRule
+                                        changeDescriptions.append("Recurrence → \(rTask.recurrenceRule ?? "removed")")
                                     }
 
                                     // Apply all metadata changes atomically.

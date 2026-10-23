@@ -49,9 +49,11 @@ struct MetadataChanges {
     var newStartDate: Date?? = nil
     var newPriority: SyncTask.Priority? = nil  // nil = no change
     var newTags: [String]? = nil  // nil = no change, [] = remove all, ["#tag"] = set
+    var newTitle: String? = nil  // nil = no change
+    var newRecurrenceRule: String?? = nil  // nil = no change, .some(nil) = remove, .some(rule) = set
 
     var hasChanges: Bool {
-        return newDueDate != nil || newStartDate != nil || newPriority != nil || newTags != nil
+        return newDueDate != nil || newStartDate != nil || newPriority != nil || newTags != nil || newTitle != nil || newRecurrenceRule != nil
     }
 }
 
