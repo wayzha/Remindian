@@ -778,6 +778,35 @@ class SyncEngine {
                                 }()
                                 if isRecurringAutoReset {
                                     debugLog("[SyncEngine] Recurring auto-reset detected for \"\(oTask.title)\": Obsidian due=\(oTask.dueDate?.description ?? "nil"), Reminders due=\(rTask.dueDate?.description ?? "nil") — not pushing completion back (would loop)")
+                                } else if rChanged && !oChanged {
+                                    // User un-completed the task in Reminders — write
+                                    // back to Obsidian ([x] → [ ]) instead of pushing
+                                    // completion and overriding the user's intent.
+                                    debugLog("[SyncEngine] Task un-completed in Reminders: \"\(oTask.title)\", writing back to Obsidian")
+                                    if config.enableCompletionWriteback {
+                                        if fileNotModifiedBeforeSync, !config.dryRunMode {
+                                            var adjustedTask = oTask
+                                            if let src = oTask.obsidianSource {
+                                                let insertions = fileInsertions[src.filePath] ?? []
+                                                let offset = insertions.filter { $0 <= src.lineNumber }.count
+                                                adjustedTask.obsidianSource = SyncTask.ObsidianSource(
+                                                    filePath: src.filePath,
+                                                    lineNumber: src.lineNumber + offset,
+                                                    originalLine: src.originalLine
+                                                )
+                                            }
+                                            do {
+                                                try source.markTaskIncomplete(task: adjustedTask, config: config)
+                                                if let fp = oTask.obsidianSource?.filePath { filesWrittenByEngine.insert(fp) }
+                                                taskForReminders.isCompleted = false
+                                                taskForReminders.completedDate = nil
+                                                debugLog("[SyncEngine] Un-completion writeback succeeded for: \"\(oTask.title)\"")
+                                            } catch {
+                                                debugLog("[SyncEngine] Un-completion writeback failed for \"\(oTask.title)\": \(error)")
+                                                result.errors.append(error)
+                                            }
+                                        }
+                                    }
                                 } else {
                                     taskForReminders.isCompleted = true
                                     taskForReminders.completedDate = oTask.completedDate ?? Date()
@@ -794,7 +823,13 @@ class SyncEngine {
                             // Also skip for the "auto-reset" case (Obsidian completed,
                             // Apple auto-reset the recurring reminder) where the Reminders
                             // values are Apple-generated, not user edits.
-                            if rChanged && !oChanged && !isAutoReset && !completionWritebackIds.contains(mapping.obsidianId) && !(implicitRecurringCompletion && config.enableCompletionWriteback) {
+                            //
+                            // Note: we no longer skip when completionWritebackIds contains
+                            // this task. For recurring tasks, markTaskComplete inserts a
+                            // new [ ] line; resolveTaskLine(wantCompleted:false) will find
+                            // that new line and apply metadata changes (title, recurrence,
+                            // dates) the user made in Reminders alongside the completion.
+                            if rChanged && !oChanged && !isAutoReset && !(implicitRecurringCompletion && config.enableCompletionWriteback) {
                                 if !fileNotModifiedBeforeSync {
                                     // File mtime bumped between sync start and now.
                                     // Without this branch the writeback would silently
@@ -1005,11 +1040,14 @@ class SyncEngine {
 
                 case (.some(let oTask), .none):
                     // Reminder mapping broken — before recreating, check if there's
-                    // already an existing reminder with the same title (e.g., after
-                    // a previous delete+recreate cycle that changed the remindersId).
+                    // already an existing INCOMPLETE reminder with the same title
+                    // (e.g., after a previous delete+recreate cycle that changed the
+                    // remindersId). Don't reconnect to completed reminders — that
+                    // would prevent deletion writeback from working when the user
+                    // deletes a recurring reminder (Apple leaves completed copies).
                     var reconnected = false
                     for (existingRemindersId, existingRTask) in remindersMap {
-                        if existingRTask.title == oTask.title {
+                        if SyncTask.displayTitle(existingRTask.title) == SyncTask.displayTitle(oTask.title) && !existingRTask.isCompleted {
                             // Found an existing reminder — reconnect instead of recreating
                             debugLog("[SyncEngine] Reconnecting \"\(oTask.title)\" to existing reminder (id changed)")
                             if !config.dryRunMode {

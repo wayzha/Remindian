@@ -1316,15 +1316,15 @@ class ObsidianService {
     /// Replace or remove the recurrence rule token (🔁 ...) in a task line.
     private func applyRecurrenceChange(to line: String, newRule: String?) -> String {
         var newLine = line
-        // Match existing 🔁 token and its rule text
+        // Match existing 🔁 token and its rule text (stop at next metadata emoji, tag, or EOL)
         let recurrencePattern = "\\s*\u{1F501}\u{FE0F}?\\s+[^📅🛫⏳✅⏫🔼🔽⏰➕🆔#]*"
         if let regex = try? NSRegularExpression(pattern: recurrencePattern),
            let match = regex.firstMatch(in: newLine, range: NSRange(newLine.startIndex..., in: newLine)),
            let matchRange = Range(match.range, in: newLine) {
             if let rule = newRule {
-                newLine.replaceSubrange(matchRange, with: " 🔁 \(rule)")
+                newLine.replaceSubrange(matchRange, with: " 🔁 \(rule) ")
             } else {
-                newLine.replaceSubrange(matchRange, with: "")
+                newLine.replaceSubrange(matchRange, with: " ")
             }
         } else if let rule = newRule {
             // No existing 🔁 — insert before the first date emoji
@@ -1337,6 +1337,8 @@ class ObsidianService {
                 newLine += " 🔁 \(rule)"
             }
         }
+        // Clean up double spaces
+        newLine = newLine.replacingOccurrences(of: " {2,}", with: " ", options: .regularExpression)
         return newLine
     }
 
@@ -1345,9 +1347,10 @@ class ObsidianService {
     /// Parse the recurrence rule from a task line (e.g., "🔁 every month on the 20th when done").
     /// Returns the rule string and whether it's a "when done" rule.
     func parseRecurrenceRule(from line: String) -> (rule: String, whenDone: Bool)? {
-        // Match 🔁 (with optional FE0F) followed by the rule text (up to the next emoji or end of line)
+        // Match 🔁 (with optional FE0F) followed by the rule text (up to the next emoji or end of line).
+        // Stop tokens include all Obsidian Tasks metadata emojis PLUS ➕ (created date) and 🆔 (task ID).
         guard let regex = try? NSRegularExpression(
-            pattern: "\u{1F501}\u{FE0F}?\\s+(.+?)(?:\\s*[\u{1F4C5}\u{1F6EB}\u{23F3}\u{2705}\u{2B06}\u{FE0F}\u{1F53D}\u{23EB}\u{2795}\u{23F0}\u{1F522}⏫🔼🔽#]|$)",
+            pattern: "\u{1F501}\u{FE0F}?\\s+(.+?)(?:\\s*[\u{1F4C5}\u{1F6EB}\u{23F3}\u{2705}\u{2B06}\u{FE0F}\u{1F53D}\u{23EB}\u{2795}\u{23F0}\u{1F522}\u{1F194}⏫🔼🔽➕🆔#]|$)",
             options: []
         ) else { return nil }
 

@@ -169,8 +169,8 @@ extension SyncTask {
         // Recurrence emoji — capture the rule text (emoji + trailing run up to
         // the next metadata emoji or tag). Order 🔁 then 🔂.
         static let recurrenceEmojiCapture: [NSRegularExpression] = [
-            make("🔁\u{FE0F}?\\s*[^📅🛫⏳✅⏫🔼🔽⏰#]*"),
-            make("🔂\u{FE0F}?\\s*[^📅🛫⏳✅⏫🔼🔽⏰#]*"),
+            make("🔁\u{FE0F}?\\s*[^📅🛫⏳✅⏫🔼🔽⏰➕🆔#]*"),
+            make("🔂\u{FE0F}?\\s*[^📅🛫⏳✅⏫🔼🔽⏰➕🆔#]*"),
         ]
 
         // Recurrence emoji — bare emoji only, used when stripping the rule from
